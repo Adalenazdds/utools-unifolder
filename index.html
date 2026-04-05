@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <title>UniFolder</title>
     <!-- 引入 Vue3 和 Tailwind CSS -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="./vendor/vue.global.prod.js"></script>
+    <script src="./vendor/tailwindcss.js"></script>
     <style>
         body { background-color: #F9FAFB; color: #1F2937; height: 100vh; margin: 0; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
         ::-webkit-scrollbar { width: 6px; }
@@ -88,12 +88,31 @@
         <!-- 中间列表 -->
         <div class="w-72 bg-gray-50 flex-col flex border-r border-gray-200">
             <div class="p-5 pb-2">
-                <div class="flex items-start justify-between gap-3">
-                    <h2 class="text-lg font-bold text-gray-800 mb-1">文件 / 文件夹列表</h2>
+                <div class="flex items-center justify-between gap-2">
+                    <h2 class="text-lg font-bold text-gray-800 mb-1 min-w-0">文件 / 文件夹</h2>
                     <button @click="toggleSidebar"
-                            class="mt-0.5 text-xs px-2 py-1 rounded-md border transition-colors whitespace-nowrap"
+                            class="mt-0.5 text-xs px-2 py-1 rounded-md border transition-colors whitespace-nowrap shrink-0"
                             :class="sidebarHidden ? 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'">
                         {{ sidebarHidden ? '显示侧栏' : '隐藏侧栏' }}
+                    </button>
+                </div>
+
+                <!-- 工具条：允许换行，避免挤出列宽导致不可点击 -->
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <select v-model="mindmapTraverseMode"
+                            class="text-xs px-2 py-1 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors w-24">
+                        <option value="all">递归:全</option>
+                        <option value="one">递归:1层</option>
+                    </select>
+                    <select v-model="mindmapNoteMode"
+                            class="text-xs px-2 py-1 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors w-24">
+                        <option value="all">备注:全</option>
+                        <option value="top">备注:顶</option>
+                        <option value="none">备注:无</option>
+                    </select>
+                    <button @click="exportMindmap"
+                            class="text-xs px-2 py-1 rounded-md border transition-colors whitespace-nowrap bg-white text-gray-600 border-gray-200 hover:bg-gray-100">
+                        🧠 导出文件
                     </button>
                 </div>
                 <div v-if="currentRoot" class="text-xs text-gray-500 truncate" :title="currentRoot">{{ currentRoot }}</div>
@@ -199,6 +218,7 @@
                 </div>
             </div>
         </div>
+
     </div>
 
     <script>
@@ -217,7 +237,9 @@
                     newTag: '',
                     tagEditMode: false,
                     newGlobalTag: '',
-                    sidebarHidden: false
+                    sidebarHidden: false,
+                    mindmapTraverseMode: 'one',
+                    mindmapNoteMode: 'all'
                 }
             },
             mounted() {
@@ -494,9 +516,37 @@
                         }
                         this.persistUIState();
                     }
+                },
+                exportMindmap() {
+                    if (!this.currentRoot) {
+                        window.api.showNotification('请先选择工作目录');
+                        return;
+                    }
+                    try {
+                        const maxDepth = this.mindmapTraverseMode === 'one' ? 1 : 999;
+                        const noteMaxDepth = this.mindmapNoteMode === 'top' ? 0 : this.mindmapNoteMode === 'none' ? -1 : 999;
+                        const md = window.api.buildMindmapMarkdown(this.currentRoot, this.store, { maxDepth, noteMaxDepth });
+                        if (!md) {
+                            window.api.showNotification('导图生成失败');
+                            return;
+                        }
+
+                        if (typeof window.api.copyText === 'function') {
+                            try { window.api.copyText(md); } catch (e) {}
+                        }
+                        const saved = window.api.saveTextAsFile('UniFolder_Mindmap.md', md);
+                        if (saved) {
+                            window.api.showNotification('✅ Mindmap 文件已导出（并已复制到剪贴板）');
+                        } else {
+                            window.api.showNotification('已复制到剪贴板（未保存文件）');
+                        }
+                    } catch (e) {
+                        window.api.showNotification('Mindmap 导出失败');
+                    }
                 }
             }
         }).mount('#app')
     </script>
+
 </body>
 </html>

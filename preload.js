@@ -91,6 +91,158 @@ const normalizeData = (raw) => {
     return { schemaVersion: 2, tagsList: tagsListOut, items: itemsOut };
 };
 
+const pad2 = (n) => String(n).padStart(2, '0');
+const formatDate = (ms) => {
+    if (!ms || Number.isNaN(Number(ms))) return '';
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+const formatBytes = (bytes) => {
+    const b = Number(bytes);
+    if (!Number.isFinite(b) || b < 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = b;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i += 1;
+    }
+    const fixed = v >= 100 || i === 0 ? 0 : v >= 10 ? 1 : 2;
+    return `${v.toFixed(fixed)} ${units[i]}`;
+};
+
+const toSingleLine = (text) => {
+    return String(text == null ? '' : text)
+        .replace(/\r\n|\r|\n/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+
+const splitLines = (text) => {
+    const raw = String(text == null ? '' : text);
+    return raw
+        .split(/\r\n|\r|\n/)
+        .map(s => s.trim())
+        .filter(Boolean);
+};
+
+// 生成 XMind 友好的 Markdown（纯 Markdown 层级列表；不使用 <br>）
+const buildMindmapMarkdown = (rootPath, store, options) => {
+    const root = typeof rootPath === 'string' ? rootPath.trim() : '';
+    if (!root) return '';
+    if (!fs.existsSync(root)) return '';
+
+    const opt = options && typeof options === 'object' ? options : {};
+    const maxDepth = Number.isFinite(Number(opt.maxDepth)) ? Number(opt.maxDepth) : 999;
+    // -1: 不包含备注；0: 仅顶层；>=1: 对应深度
+    const noteMaxDepth = Number.isFinite(Number(opt.noteMaxDepth)) ? Number(opt.noteMaxDepth) : 999;
+
+    const items = store && typeof store === 'object' && store.items && typeof store.items === 'object' ? store.items : {};
+
+    const getMeta = (p) => {
+        const it = items && items[p] ? items[p] : null;
+        const tags = it && Array.isArray(it.tags) ? it.tags.filter(t => typeof t === 'string' && t.trim()).map(t => t.trim()) : [];
+        const note = it && typeof it.note === 'string' ? it.note : '';
+        const hidden = !!(it && it.hidden);
+        return { tags, note, hidden };
+    };
+
+    const walk = (p, depth) => {
+        let stat;
+        try { stat = fs.statSync(p); } catch (e) { return null; }
+
+        const isDir = stat.isDirectory();
+        const name = path.basename(p) || p;
+        const createdMs = stat.birthtimeMs || stat.ctimeMs || 0;
+        const meta = getMeta(p);
+        if (meta.hidden) return null;
+
+        let children = [];
+        let sizeBytes = isDir ? 0 : Number(stat.size) || 0;
+
+        if (isDir && depth < maxDepth) {
+            try {
+                const entries = fs.readdirSync(p, { withFileTypes: true });
+                for (const ent of entries) {
+                    if (!ent) continue;
+                    if (ent.isSymbolicLink && ent.isSymbolicLink()) continue;
+                    if (!ent.isDirectory() && !ent.isFile()) continue;
+                    const childPath = path.join(p, ent.name);
+                    const child = walk(childPath, depth + 1);
+                    if (!child) continue;
+                    children.push(child);
+                    sizeBytes += Number(child.sizeBytes) || 0;
+                }
+            } catch (e) {}
+        }
+
+        children.sort((a, b) => {
+            if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+            return String(a.name).localeCompare(String(b.name), 'zh-CN');
+        });
+
+        return {
+            name,
+            path: p,
+            isDir,
+            depth,
+            createdMs,
+            sizeBytes,
+            tags: meta.tags,
+            note: meta.note,
+            children
+        };
+    };
+
+    const rootNode = walk(root, 0);
+    if (!rootNode) return '';
+
+    const lines = [];
+    lines.push('# UniFolder Mindmap');
+    lines.push('');
+
+    const emit = (node, depth) => {
+        const indent = '  '.repeat(depth);
+        const icon = node.isDir ? '📁' : '📄';
+        const name = toSingleLine(node.name) || '(未命名)';
+        lines.push(`${indent}- ${icon} ${name}`);
+
+        const metaIndent = '  '.repeat(depth + 1);
+        const created = formatDate(node.createdMs) || '未知';
+        const size = formatBytes(node.sizeBytes) || '未知';
+        const tags = node.tags && node.tags.length ? node.tags.join(', ') : '无';
+        lines.push(`${metaIndent}- 创建时间：${created}`);
+        lines.push(`${metaIndent}- 大小：${size}`);
+        lines.push(`${metaIndent}- 标签：${toSingleLine(tags) || '无'}`);
+
+        if (noteMaxDepth >= 0 && (Number(node.depth) || 0) <= noteMaxDepth) {
+            const noteRaw = typeof node.note === 'string' ? node.note : '';
+            const noteLines = splitLines(noteRaw);
+            if (noteLines.length === 0) {
+                lines.push(`${metaIndent}- 备注：无`);
+            } else if (noteLines.length === 1) {
+                lines.push(`${metaIndent}- 备注：${toSingleLine(noteLines[0])}`);
+            } else {
+                lines.push(`${metaIndent}- 备注：`);
+                const noteIndent = '  '.repeat(depth + 2);
+                for (const line of noteLines) {
+                    lines.push(`${noteIndent}- ${toSingleLine(line)}`);
+                }
+            }
+        }
+
+        for (const child of node.children || []) {
+            emit(child, depth + 1);
+        }
+    };
+
+    emit(rootNode, 0);
+    lines.push('');
+    lines.push('> 使用提示：XMind 支持导入该 Markdown 生成思维导图。');
+    return lines.join('\n');
+};
+
 window.api = {
     // 检查路径是否有效
     isValidPath: (p) => {
@@ -244,6 +396,47 @@ window.api = {
             fs.writeFileSync(savePath, JSON.stringify(data, null, 2), 'utf-8');
             return true;
         }
+        return false;
+    },
+
+    // Mindmap：生成 Markdown（Markmap 友好）
+    buildMindmapMarkdown: (rootPath, store, options) => {
+        try {
+            return buildMindmapMarkdown(rootPath, store, options);
+        } catch (e) {
+            return '';
+        }
+    },
+
+
+    // 保存文本文件
+    saveTextAsFile: (defaultName, content) => {
+        const name = typeof defaultName === 'string' && defaultName.trim() ? defaultName.trim() : 'UniFolder_Mindmap.md';
+        const text = typeof content === 'string' ? content : '';
+        const savePath = window.utools.showSaveDialog({
+            title: '导出 UniFolder Mindmap',
+            defaultPath: name,
+            filters: [{ name: 'Markdown', extensions: ['md'] }]
+        });
+        if (!savePath) return null;
+        try {
+            fs.writeFileSync(savePath, text, 'utf-8');
+            return savePath;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    // 复制到剪贴板
+    copyText: (text) => {
+        const t = typeof text === 'string' ? text : '';
+        if (!t) return false;
+        try {
+            if (window.utools && typeof window.utools.copyText === 'function') {
+                window.utools.copyText(t);
+                return true;
+            }
+        } catch (e) {}
         return false;
     },
 
