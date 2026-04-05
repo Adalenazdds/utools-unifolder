@@ -1,0 +1,23 @@
+{
+  "pluginName": "UniFolder",
+  "author": "Juary",
+  "description": "文件夹别名与标签索引，拯救打工人的记忆",
+  "version": "1.0.0",
+  "logo": "logo.png",
+  "features": [
+    {
+      "code": "unifolder",
+      "explain": "打开 UniFolder",
+      "cmds": [
+        "unifolder",
+        "文件夹管理",
+        "别名",
+        "标签"
+      ]
+    }
+  ],
+  "preload": "preload.js",
+  "development": {
+    "main": "index.html"
+  }
+}

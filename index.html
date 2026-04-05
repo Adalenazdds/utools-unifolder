@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>UniFolder</title>
+    <!-- 引入 Vue3 和 Tailwind CSS -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #F9FAFB; color: #1F2937; height: 100vh; margin: 0; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+    </style>
+</head>
+<body>
+    <div id="app" class="flex h-full w-full">
+        <!-- 左侧边栏 -->
+        <div class="bg-white border-r border-gray-200 flex flex-col shadow-sm z-10 transition-all duration-200 overflow-hidden"
+             :class="sidebarHidden ? 'w-0 -translate-x-full p-0 border-r-0 shadow-none pointer-events-none' : 'w-56 translate-x-0 p-5'">
+            <h1 class="text-2xl font-extrabold text-blue-600 mb-6 tracking-tight">UniFolder</h1>
+            <button @click="chooseRoot" class="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors duration-200 p-2 rounded-lg mb-6 font-medium text-sm flex justify-center items-center gap-2">
+                📂 选择工作目录
+            </button>
+            
+            <div class="flex-1 overflow-y-auto">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">标签索引</div>
+                    <button @click="toggleTagEditMode"
+                            class="text-xs px-2 py-1 rounded-md border transition-colors"
+                            :class="tagEditMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'">
+                        编辑
+                    </button>
+                </div>
+
+                <!-- 正常筛选模式 -->
+                <div v-if="!tagEditMode">
+                    <div @click="filterByTag(null)" 
+                         class="cursor-pointer px-3 py-2 rounded-md text-sm transition-colors duration-150 mb-1"
+                         :class="currentTagFilter === null ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'">
+                        🏷️ 全部条目
+                    </div>
+                    <!-- 遍历标签（全局标签库） -->
+                    <div v-for="tag in allTags" :key="tag" @click="filterByTag(tag)" 
+                         class="cursor-pointer px-3 py-2 rounded-md text-sm transition-colors duration-150 mb-1 flex items-center"
+                         :class="currentTagFilter === tag ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'">
+                        <span class="text-gray-400 mr-2">#</span> {{ tag }}
+                    </div>
+                </div>
+
+                <!-- 标签库管理模式 -->
+                <div v-else>
+                    <div class="bg-gray-50 border border-gray-100 rounded-lg p-3 mb-3">
+                        <div class="text-xs text-gray-500 mb-2">新增全局标签</div>
+                        <input v-model="newGlobalTag" @keydown.enter.prevent="addGlobalTag"
+                               placeholder="输入标签后回车"
+                               class="w-full text-sm bg-white text-gray-700 px-3 py-2 rounded-md outline-none border border-gray-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-all shadow-sm">
+                    </div>
+
+                    <div v-if="allTags.length === 0" class="text-sm text-gray-400 text-center mt-6">
+                        暂无全局标签
+                    </div>
+
+                    <div v-for="tag in allTags" :key="tag"
+                         class="px-3 py-2 rounded-md text-sm mb-1 flex items-center justify-between border border-transparent hover:border-gray-200 hover:bg-white transition-colors">
+                        <div class="flex items-center text-gray-700">
+                            <span class="text-gray-400 mr-2">#</span> {{ tag }}
+                        </div>
+                        <button @click="deleteGlobalTag(tag)"
+                                class="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors">
+                            删除
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据导入导出区 -->
+            <div class="mt-4 pt-4 border-t border-gray-100 flex justify-between gap-2">
+                <button @click="importData" class="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 px-2 py-2 rounded-lg text-xs font-medium transition-colors border border-gray-200">
+                    📥 导入数据
+                </button>
+                <button @click="exportData" class="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 px-2 py-2 rounded-lg text-xs font-medium transition-colors border border-gray-200">
+                    📤 导出备份
+                </button>
+            </div>
+        </div>
+
+        <!-- 中间列表 -->
+        <div class="w-72 bg-gray-50 flex-col flex border-r border-gray-200">
+            <div class="p-5 pb-2">
+                <div class="flex items-start justify-between gap-3">
+                    <h2 class="text-lg font-bold text-gray-800 mb-1">文件 / 文件夹列表</h2>
+                    <button @click="toggleSidebar"
+                            class="mt-0.5 text-xs px-2 py-1 rounded-md border transition-colors whitespace-nowrap"
+                            :class="sidebarHidden ? 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'">
+                        {{ sidebarHidden ? '显示侧栏' : '隐藏侧栏' }}
+                    </button>
+                </div>
+                <div v-if="currentRoot" class="text-xs text-gray-500 truncate" :title="currentRoot">{{ currentRoot }}</div>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4 pt-2">
+                <div v-if="visibleFolders.length === 0" class="text-sm text-gray-400 text-center mt-10">
+                    没有找到文件或文件夹
+                </div>
+                <!-- 文件夹卡片 -->
+                <div v-for="folder in visibleFolders" :key="folder.path" 
+                     @click="selectFolder(folder)"
+                     class="bg-white p-4 rounded-xl mb-3 cursor-pointer border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all duration-200"
+                     :class="selectedFolder?.path === folder.path ? 'ring-2 ring-blue-500 border-transparent' : ''">
+                    <div class="flex justify-between font-bold text-sm mb-1 text-gray-800">
+                        <span class="truncate pr-2">{{ (folder.isDir ? '📁' : '📄') }} {{ getFolderData(folder.path).alias || folder.name }}</span>
+                        <span class="text-xs text-gray-400 whitespace-nowrap font-normal">{{ folder.mtime_str }}</span>
+                    </div>
+                    <!-- 预览标签 -->
+                    <div class="flex gap-1 mb-2 overflow-hidden">
+                        <span v-for="t in getFolderData(folder.path).tags?.slice(0,3)" class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                            {{ t }}
+                        </span>
+                    </div>
+                    <div class="text-xs text-gray-500 truncate line-clamp-2 leading-relaxed">
+                        {{ getFolderData(folder.path).note || '点击添加备注...' }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧详情编辑页 -->
+        <div class="flex-1 bg-white p-10 flex flex-col">
+            <div v-if="!selectedFolder" class="h-full flex flex-col items-center justify-center text-gray-400">
+                <div class="text-4xl mb-4">🗂️</div>
+                <p>请在左侧选择一个文件或文件夹查看或编辑详情</p>
+            </div>
+            
+            <div v-else class="flex flex-col h-full max-w-3xl">
+                <!-- 条目名称/别名 -->
+                <input v-model="editingData.alias" @blur="saveCurrent" 
+                       placeholder="给文件 / 文件夹起个好记的别名"
+                       class="text-3xl font-extrabold bg-transparent border-none outline-none text-gray-800 mb-1 placeholder-gray-300 transition-colors focus:bg-gray-50 rounded p-2 -ml-2" />
+                <div class="text-gray-400 text-sm mb-6 ml-1 flex items-center gap-2 cursor-pointer hover:text-blue-500" @click="openInOS" title="在资源管理器中打开">
+                    {{ selectedFolder?.isDir ? '📁' : '📄' }} {{ selectedFolder.path }}
+                </div>
+                
+                <!-- 标签管理区 -->
+                <div class="mb-6 max-h-32 overflow-y-auto">
+                    <!-- 当前已有标签与输入框 -->
+                    <div class="flex flex-wrap gap-2 items-center bg-gray-50 p-3 rounded-lg border border-gray-100 mb-2">
+                        <span v-for="(tag, index) in editingData.tags" :key="index" 
+                              class="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-md text-sm flex items-center font-medium shadow-sm">
+                            # {{ tag }}
+                            <span @click="removeTag(index)" class="ml-2 cursor-pointer text-blue-400 hover:text-red-500 font-bold leading-none">×</span>
+                        </span>
+                        <!-- 输入新标签 -->
+                        <input v-model="newTag" @keydown.enter.prevent="addTag"
+                               placeholder="+ 输入标签后回车" 
+                               class="text-sm bg-white text-gray-700 px-3 py-1 rounded-md outline-none w-40 border border-gray-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-all shadow-sm">
+                    </div>
+                    
+                    <!-- 全局标签快速推荐区 (仅当有可选标签时显示) -->
+                    <div v-if="availableTags.length > 0" class="flex flex-wrap gap-2 items-center px-1">
+                        <span class="text-xs text-gray-400 mr-1">快速添加:</span>
+                        <span v-for="tag in availableTags" :key="tag" @click="addSpecificTag(tag)"
+                              class="cursor-pointer bg-white border border-gray-200 text-gray-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 px-2 py-0.5 rounded text-xs transition-colors shadow-sm">
+                            + {{ tag }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 备注区 -->
+                <h3 class="text-sm font-bold text-gray-700 mb-2">详细备注</h3>
+                <textarea v-model="editingData.note" @blur="saveCurrent"
+                          class="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 outline-none text-gray-700 text-sm flex-1 resize-none focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all shadow-inner"
+                          placeholder="这里可以写很长的备注，比如：项目背景、对接人是谁、最终版本是哪个文件..."></textarea>
+                
+                <!-- 底部操作区 -->
+                <div class="mt-6 flex gap-4 border-t border-gray-100 pt-6">
+                    <button @click="openInOS" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+                        在本地打开
+                    </button>
+                    <button @click="hideFolder" class="bg-red-50 hover:bg-red-100 text-red-600 px-6 py-2 rounded-lg text-sm font-medium transition-colors">
+                        隐藏此文件夹
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    store: window.api.loadData(),
+                    currentRoot: '',
+                    folders: [],
+                    selectedFolder: null,
+                    editingData: { alias: '', note: '', tags: [], hidden: false },
+                    currentTagFilter: null,
+                    newTag: '',
+                    tagEditMode: false,
+                    newGlobalTag: '',
+                    sidebarHidden: false
+                }
+            },
+            mounted() {
+                // 恢复上次关闭时的位置：根目录 / 标签筛选 / 当前选中条目
+                const ui = window.api.loadUIState();
+                if (ui && typeof ui.sidebarHidden === 'boolean') {
+                    this.sidebarHidden = ui.sidebarHidden;
+                }
+                if (ui && ui.currentRoot && window.api.isValidPath(ui.currentRoot)) {
+                    this.currentRoot = ui.currentRoot;
+                    this.folders = window.api.scanSubfolders(ui.currentRoot);
+                }
+
+                if (ui && typeof ui.currentTagFilter === 'string' && ui.currentTagFilter) {
+                    // 若标签已不在全局标签库中（比如被删除），则不恢复筛选
+                    this.currentTagFilter = this.allTags.includes(ui.currentTagFilter) ? ui.currentTagFilter : null;
+                }
+
+                if (ui && ui.lastSelectedPath) {
+                    const found = this.folders.find(f => f.path === ui.lastSelectedPath);
+                    if (found) {
+                        this.selectFolder(found);
+                    }
+                }
+
+                // 同步动态指令：让标签可被 uTools 搜索
+                window.api.syncTagFeatures(this.allTags);
+
+                // 处理“通过动态标签指令进入”场景：进入后自动切换到该标签筛选
+                const handleEnter = (action) => {
+                    const tag = window.api.getTagFromFeatureCode(action?.code);
+                    if (!tag) return;
+
+                    this.tagEditMode = false;
+                    this.currentTagFilter = this.allTags.includes(tag) ? tag : null;
+                    this.persistUIState();
+                };
+
+                // 初次进入：消费 preload 捕获的 enter action
+                const initial = window.api.consumeLastEnterAction();
+                if (initial) handleEnter(initial);
+
+                // 后续进入（单例模式下反复唤起）：监听事件
+                window.addEventListener('unifolder:plugin-enter', (e) => {
+                    handleEnter(e?.detail);
+                });
+
+                // 窗口关闭时尽量落盘（uTools 环境下不保证每次触发，但足够稳妥）
+                const persist = () => this.persistUIState();
+                window.addEventListener('beforeunload', persist);
+                window.addEventListener('pagehide', persist);
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'hidden') persist();
+                });
+            },
+            computed: {
+                allTags() {
+                    const list = this.store?.tagsList;
+                    return Array.isArray(list) ? list : [];
+                },
+                // 新增：计算出全局存在，但当前文件夹还没添加的标签
+                availableTags() {
+                    if (!this.selectedFolder) return [];
+                    const currentTags = this.editingData.tags || [];
+                    return this.allTags.filter(tag => !currentTags.includes(tag));
+                },
+                visibleFolders() {
+                    return this.folders.filter(f => {
+                        const data = this.getFolderData(f.path);
+                        if (data.hidden) return false;
+                        if (this.currentTagFilter && (!data.tags || !data.tags.includes(this.currentTagFilter))) return false;
+                        return true;
+                    });
+                }
+            },
+            methods: {
+                persistUIState() {
+                    window.api.saveUIState({
+                        currentRoot: this.currentRoot,
+                        currentTagFilter: this.currentTagFilter,
+                        lastSelectedPath: this.selectedFolder?.path || '',
+                        sidebarHidden: this.sidebarHidden
+                    });
+                },
+                toggleSidebar() {
+                    this.sidebarHidden = !this.sidebarHidden;
+                    this.persistUIState();
+                },
+                getFolderData(path) {
+                    const items = this.store?.items;
+                    return (items && items[path]) || { alias: '', note: '', tags: [], hidden: false };
+                },
+                chooseRoot() {
+                    const path = window.api.openDirectoryPicker();
+                    if (path) {
+                        this.currentRoot = path;
+                        this.folders = window.api.scanSubfolders(path);
+                        this.persistUIState();
+                    }
+                },
+                selectFolder(folder) {
+                    this.selectedFolder = folder;
+                    const data = this.getFolderData(folder.path);
+                    if (!data.tags) data.tags = [];
+                    this.editingData = JSON.parse(JSON.stringify(data));
+                    this.persistUIState();
+                },
+                saveCurrent() {
+                    if(!this.selectedFolder) return;
+                    const path = this.selectedFolder.path;
+                    if (!this.store.items) this.store.items = {};
+                    this.store.items[path] = JSON.parse(JSON.stringify(this.editingData));
+                    window.api.saveData(this.store);
+                    this.persistUIState();
+                },
+                // 按回车键添加新标签
+                addTag() {
+                    const tag = this.newTag.trim();
+                    if (!tag) {
+                        this.newTag = '';
+                        return;
+                    }
+
+                    // 输入即创建：先进入全局标签库
+                    this.addGlobalTag(tag, { silent: true });
+
+                    if (!this.editingData.tags.includes(tag)) {
+                        this.editingData.tags.push(tag);
+                        this.saveCurrent();
+                    }
+                    this.newTag = ''; // 强制清空输入框
+                },
+                // 点击历史标签快速添加
+                addSpecificTag(tag) {
+                    if (!this.editingData.tags.includes(tag)) {
+                        this.editingData.tags.push(tag);
+                        this.saveCurrent();
+                    }
+                },
+                removeTag(index) {
+                    this.editingData.tags.splice(index, 1);
+                    this.saveCurrent();
+                },
+                toggleTagEditMode() {
+                    this.tagEditMode = !this.tagEditMode;
+                    this.persistUIState();
+                },
+                addGlobalTag(tag, options = {}) {
+                    const t = (typeof tag === 'string' ? tag : '').trim();
+                    if (!t) return;
+                    if (!this.store.tagsList) this.store.tagsList = [];
+                    if (!this.store.tagsList.includes(t)) {
+                        this.store.tagsList.push(t);
+                        this.store.tagsList.sort((a, b) => a.localeCompare(b, 'zh-CN'));
+                        window.api.saveData(this.store);
+                        window.api.syncTagFeatures(this.store.tagsList);
+                    }
+                    if (!options.silent) this.newGlobalTag = '';
+                },
+                deleteGlobalTag(tag) {
+                    const t = (typeof tag === 'string' ? tag : '').trim();
+                    if (!t) return;
+                    const ok = window.confirm(`确认删除全局标签 “${t}” 吗？\n\n删除后将自动从所有条目（文件/文件夹）中移除该标签。`);
+                    if (!ok) return;
+
+                    // 1) 从全局标签库移除
+                    if (!this.store.tagsList) this.store.tagsList = [];
+                    this.store.tagsList = this.store.tagsList.filter(x => x !== t);
+
+                    // 2) 清理所有 items 的引用
+                    if (!this.store.items) this.store.items = {};
+                    Object.values(this.store.items).forEach(item => {
+                        if (item && Array.isArray(item.tags)) {
+                            item.tags = item.tags.filter(x => x !== t);
+                        }
+                    });
+
+                    // 3) UI 同步：筛选与当前编辑态
+                    if (this.currentTagFilter === t) this.currentTagFilter = null;
+                    if (this.editingData?.tags && Array.isArray(this.editingData.tags)) {
+                        this.editingData.tags = this.editingData.tags.filter(x => x !== t);
+                    }
+
+                    window.api.saveData(this.store);
+                    window.api.syncTagFeatures(this.store.tagsList);
+                    this.persistUIState();
+                },
+                openInOS() {
+                    window.api.openInExplorer(this.selectedFolder.path);
+                },
+                hideFolder() {
+                    this.editingData.hidden = true;
+                    this.saveCurrent();
+                    this.selectedFolder = null;
+                    window.api.showNotification("已隐藏，如需恢复请在数据管理中清除");
+                    this.persistUIState();
+                },
+                filterByTag(tag) {
+                    if (this.tagEditMode) return;
+                    this.currentTagFilter = tag;
+                    this.persistUIState();
+                },
+                exportData() {
+                    const success = window.api.exportData(this.store);
+                    if (success) {
+                        window.api.showNotification("🎉 数据导出成功！");
+                    }
+                },
+                importData() {
+                    const imported = window.api.importData();
+                    if (imported) {
+                        const normalized = window.api.normalizeData(imported);
+
+                        const mergedItems = { ...(this.store.items || {}), ...(normalized.items || {}) };
+                        const tagSet = new Set([...(this.store.tagsList || []), ...(normalized.tagsList || [])]);
+                        const mergedTagsList = Array.from(tagSet).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
+                        this.store = {
+                            schemaVersion: 2,
+                            items: mergedItems,
+                            tagsList: mergedTagsList
+                        };
+                        window.api.saveData(this.store);
+                        window.api.syncTagFeatures(this.store.tagsList);
+                        window.api.showNotification("✅ 数据导入成功！");
+                        if (this.selectedFolder) {
+                            this.selectFolder(this.selectedFolder);
+                        }
+                        this.persistUIState();
+                    }
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
