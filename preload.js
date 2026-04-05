@@ -268,5 +268,31 @@ window.api = {
 
     // 原生交互 API
     openInExplorer: (folderPath) => { window.utools.shellOpenItem(folderPath); },
+    openExternal: (url) => {
+        if (!window.utools) return false;
+        let u = typeof url === 'string' ? url.trim() : '';
+        if (!u) return false;
+
+        // 仅允许 http(s)
+        if (!/^https?:\/\//i.test(u)) {
+            if (/^www\./i.test(u)) u = `https://${u}`;
+        }
+        if (!/^https?:\/\//i.test(u)) return false;
+
+        try {
+            if (typeof window.utools.shellOpenExternal === 'function') {
+                window.utools.shellOpenExternal(u);
+                return true;
+            }
+        } catch (e) {}
+
+        // 兜底：部分环境下可能也能打开 url
+        try {
+            window.utools.shellOpenItem(u);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    },
     showNotification: (msg) => { window.utools.showNotification(msg); }
 }
